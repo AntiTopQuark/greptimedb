@@ -14,10 +14,12 @@
 
 use std::fmt::{self, Display, Formatter};
 
+use itertools::Itertools;
 use serde::Serialize;
 use sqlparser_derive::{Visit, VisitMut};
 
 use crate::ast::{Ident, ObjectName};
+use crate::statements::OptionMap;
 
 /// Represents a SQL COMMENT statement for adding or removing comments on database objects.
 ///
@@ -32,6 +34,7 @@ use crate::ast::{Ident, ObjectName};
 pub struct Comment {
     pub object: CommentObject,
     pub comment: Option<String>,
+    pub ddl_options: OptionMap,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Visit, VisitMut, Serialize)]
@@ -50,7 +53,11 @@ impl Display for Comment {
                 write!(f, "'{}'", escaped)
             }
             None => f.write_str("NULL"),
+        }?;
+        if !self.ddl_options.is_empty() {
+            write!(f, " WITH({})", self.ddl_options.kv_pairs().iter().join(", "))?;
         }
+        Ok(())
     }
 }
 

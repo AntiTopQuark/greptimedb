@@ -418,6 +418,7 @@ pub fn expr_to_create(expr: &CreateTableExpr, quote_style: Option<char>) -> Resu
         engine: expr.engine.clone(),
         constraints,
         options,
+        ddl_options: OptionMap::default(),
         partitions: None,
     })
 }
@@ -705,7 +706,7 @@ pub(crate) fn to_repartition_request(
     let AlterTable {
         table_name,
         alter_operation,
-        options,
+        ddl_options,
     } = alter_table;
 
     let (catalog_name, schema_name, table_name) = table_idents_to_full_name(&table_name, query_ctx)
@@ -725,7 +726,7 @@ pub(crate) fn to_repartition_request(
         table_name,
         from_exprs: operation.from_exprs,
         into_exprs: operation.into_exprs,
-        options,
+        options: ddl_options,
     })
 }
 

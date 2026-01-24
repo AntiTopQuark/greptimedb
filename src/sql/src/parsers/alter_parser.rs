@@ -30,7 +30,7 @@ use crate::error::{self, InvalidColumnOptionSnafu, Result, SetFulltextOptionSnaf
 use crate::parser::ParserContext;
 use crate::parsers::create_parser::INVERTED;
 use crate::parsers::utils::{
-    parse_with_options, validate_column_fulltext_create_option,
+    parse_ddl_with_options, validate_column_fulltext_create_option,
     validate_column_skipping_index_create_option,
 };
 use crate::statements::OptionMap;
@@ -183,9 +183,9 @@ impl ParserContext<'_> {
             unexpected => self.unsupported(unexpected.to_string())?,
         };
 
-        let options = parse_with_options(&mut self.parser)?;
+        let ddl_options = parse_ddl_with_options(&mut self.parser)?;
         // TODO(weny): Respect the DDL options (e.g., WAIT and TIMEOUT) after the ALTER TABLE statement.
-        Ok(AlterTable::new(table_name, alter_operation, options))
+        Ok(AlterTable::new(table_name, alter_operation, ddl_options))
     }
 
     fn parse_alter_table_unset(&mut self) -> Result<AlterTableOperation> {
@@ -1084,7 +1084,7 @@ ALTER TABLE alter_repartition_table MERGE PARTITION (
             }
 
             // Verify WITH options are parsed
-            let options = alter_table.options().to_str_map();
+            let options = alter_table.ddl_options().to_str_map();
             assert_eq!(options.get("timeout").unwrap(), &"5m");
             assert_eq!(options.get("wait").unwrap(), &"false");
             assert_eq!(options.len(), 2);

@@ -31,20 +31,19 @@ use crate::statements::OptionMap;
 pub struct AlterTable {
     pub table_name: ObjectName,
     pub alter_operation: AlterTableOperation,
-    /// Table options in `WITH`. All keys are lowercase.
-    pub options: OptionMap,
+    pub ddl_options: OptionMap,
 }
 
 impl AlterTable {
     pub(crate) fn new(
         table_name: ObjectName,
         alter_operation: AlterTableOperation,
-        options: OptionMap,
+        ddl_options: OptionMap,
     ) -> Self {
         Self {
             table_name,
             alter_operation,
-            options,
+            ddl_options,
         }
     }
 
@@ -56,8 +55,8 @@ impl AlterTable {
         &self.alter_operation
     }
 
-    pub fn options(&self) -> &OptionMap {
-        &self.options
+    pub fn ddl_options(&self) -> &OptionMap {
+        &self.ddl_options
     }
 
     pub fn alter_operation_mut(&mut self) -> &mut AlterTableOperation {

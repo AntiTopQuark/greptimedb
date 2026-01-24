@@ -164,6 +164,13 @@ pub enum Error {
         location: Location,
     },
 
+    #[snafu(display("Unrecognized DDL option key: {}", key))]
+    InvalidDdlOption {
+        key: String,
+        #[snafu(implicit)]
+        location: Location,
+    },
+
     #[snafu(display("Invalid table name: {}", name))]
     InvalidTableName {
         name: String,
@@ -384,6 +391,7 @@ impl ErrorExt for Error {
             | InvalidJsonStructureSetting { .. }
             | InvalidDatabaseName { .. }
             | InvalidDatabaseOption { .. }
+            | InvalidDdlOption { .. }
             | ColumnTypeMismatch { .. }
             | InvalidTableName { .. }
             | InvalidFlowName { .. }

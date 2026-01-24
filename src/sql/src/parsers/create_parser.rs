@@ -31,18 +31,18 @@ use sqlparser::keywords::ALL_KEYWORDS;
 use sqlparser::parser::IsOptional::Mandatory;
 use sqlparser::parser::{Parser, ParserError};
 use sqlparser::tokenizer::{Token, TokenWithSpan, Word};
-use table::requests::validate_database_option;
+use table::requests::{VALID_DDL_OPTION_KEYS, validate_database_option, validate_table_option};
 
 use crate::ast::{ColumnDef, Ident, ObjectNamePartExt};
 use crate::error::{
-    self, InvalidColumnOptionSnafu, InvalidDatabaseOptionSnafu, InvalidIntervalSnafu,
-    InvalidSqlSnafu, InvalidTimeIndexSnafu, MissingTimeIndexSnafu, Result, SyntaxSnafu,
-    UnexpectedSnafu, UnsupportedSnafu,
+    self, InvalidColumnOptionSnafu, InvalidDatabaseOptionSnafu, InvalidDdlOptionSnafu,
+    InvalidIntervalSnafu, InvalidSqlSnafu, InvalidTableOptionSnafu, InvalidTimeIndexSnafu,
+    MissingTimeIndexSnafu, Result, SyntaxSnafu, UnexpectedSnafu, UnsupportedSnafu,
 };
 use crate::parser::{FLOW, ParserContext};
 use crate::parsers::tql_parser;
 use crate::parsers::utils::{
-    self, parse_with_options, validate_column_fulltext_create_option,
+    self, parse_ddl_with_options, validate_column_fulltext_create_option,
     validate_column_skipping_index_create_option, validate_column_vector_index_create_option,
 };
 use crate::statements::create::{
@@ -129,6 +129,7 @@ impl<'a> ParserContext<'a> {
 
         let columns = self.parse_view_columns()?;
 
+        let ddl_options = parse_ddl_with_options(&mut self.parser)?;
         self.parser
             .expect_keyword(Keyword::AS)
             .context(SyntaxSnafu)?;
@@ -141,6 +142,7 @@ impl<'a> ParserContext<'a> {
             or_replace,
             query: Box::new(query),
             if_not_exists,
+            ddl_options,
         }))
     }
 
@@ -180,12 +182,13 @@ impl<'a> ParserContext<'a> {
         }
 
         let engine = self.parse_table_engine(common_catalog::consts::FILE_ENGINE)?;
-        let options = self.parse_create_table_options()?;
+        let (options, ddl_options) = self.parse_create_table_options()?;
         Ok(Statement::CreateExternalTable(CreateExternalTable {
             name: table_name,
             columns,
             constraints,
             options,
+            ddl_options,
             if_not_exists,
             engine,
         }))
@@ -208,15 +211,23 @@ impl<'a> ParserContext<'a> {
             .map(parse_option_string)
             .collect::<Result<HashMap<String, OptionValue>>>()?;
 
-        for key in options.keys() {
+        let (ddl_options, db_options): (HashMap<_, _>, HashMap<_, _>) =
+            options.into_iter().partition(|(k, _)| VALID_DDL_OPTION_KEYS.contains(&k.as_str()));
+        for key in db_options.keys() {
             ensure!(
                 validate_database_option(key),
                 InvalidDatabaseOptionSnafu { key: key.clone() }
             );
         }
-        if let Some(append_mode) = options.get("append_mode").and_then(|x| x.as_string())
+        for key in ddl_options.keys() {
+            ensure!(
+                VALID_DDL_OPTION_KEYS.contains(&key.as_str()),
+                InvalidDdlOptionSnafu { key: key.clone() }
+            );
+        }
+        if let Some(append_mode) = db_options.get("append_mode").and_then(|x| x.as_string())
             && append_mode == "true"
-            && options.contains_key("merge_mode")
+            && db_options.contains_key("merge_mode")
         {
             return InvalidDatabaseOptionSnafu {
                 key: "merge_mode".to_string(),
@@ -227,7 +238,8 @@ impl<'a> ParserContext<'a> {
         Ok(Statement::CreateDatabase(CreateDatabase {
             name: database_name,
             if_not_exists,
-            options: OptionMap::new(options),
+            options: OptionMap::new(db_options),
+            ddl_options: OptionMap::new(ddl_options),
         }))
     }
 
@@ -256,7 +268,7 @@ impl<'a> ParserContext<'a> {
         }
 
         let engine = self.parse_table_engine(default_engine())?;
-        let options = self.parse_create_table_options()?;
+        let (options, ddl_options) = self.parse_create_table_options()?;
         let create_table = CreateTable {
             if_not_exists,
             name: table_name,
@@ -264,6 +276,7 @@ impl<'a> ParserContext<'a> {
             engine,
             constraints,
             options,
+            ddl_options,
             table_id: 0, // table id is assigned by catalog manager
             partitions,
         };
@@ -276,6 +289,8 @@ impl<'a> ParserContext<'a> {
         let if_not_exists = self.parse_if_not_exist()?;
 
         let flow_name = self.intern_parse_table_name()?;
+
+        let ddl_options = parse_ddl_with_options(&mut self.parser)?;
 
         // make `SINK` case in-sensitive
         if let Token::Word(word) = self.parser.peek_token().token
@@ -351,6 +366,7 @@ impl<'a> ParserContext<'a> {
             eval_interval,
             comment,
             query,
+            ddl_options,
         }))
     }
 
@@ -446,8 +462,26 @@ impl<'a> ParserContext<'a> {
         Ok(false)
     }
 
-    fn parse_create_table_options(&mut self) -> Result<OptionMap> {
-        parse_with_options(&mut self.parser)
+    fn parse_create_table_options(&mut self) -> Result<(OptionMap, OptionMap)> {
+        let options = self
+            .parser
+            .parse_options(Keyword::WITH)
+            .context(SyntaxSnafu)?
+            .into_iter()
+            .map(parse_option_string)
+            .collect::<Result<HashMap<String, OptionValue>>>()?;
+        let (ddl_options, table_options): (HashMap<_, _>, HashMap<_, _>) =
+            options.into_iter().partition(|(k, _)| VALID_DDL_OPTION_KEYS.contains(&k.as_str()));
+        for key in table_options.keys() {
+            ensure!(validate_table_option(key), InvalidTableOptionSnafu { key });
+        }
+        for key in ddl_options.keys() {
+            ensure!(
+                VALID_DDL_OPTION_KEYS.contains(&key.as_str()),
+                InvalidDdlOptionSnafu { key: key.clone() }
+            );
+        }
+        Ok((OptionMap::new(table_options), OptionMap::new(ddl_options)))
     }
 
     /// "PARTITION ON COLUMNS (...)" clause
@@ -1429,6 +1463,17 @@ mod tests {
             }
             _ => unreachable!(),
         }
+
+        let sql = "CREATE DATABASE prometheus WITH (ttl='1h', timeout='10s', wait=false)";
+        let stmts =
+            ParserContext::create_with_dialect(sql, &GreptimeDbDialect {}, ParseOptions::default())
+                .unwrap();
+        let Statement::CreateDatabase(c) = &stmts[0] else {
+            unreachable!()
+        };
+        assert_eq!(c.options.to_str_map().get("ttl").unwrap(), &"1h");
+        assert_eq!(c.ddl_options.to_str_map().get("timeout").unwrap(), &"10s");
+        assert_eq!(c.ddl_options.to_str_map().get("wait").unwrap(), &"false");
     }
 
     #[test]
@@ -1616,6 +1661,7 @@ select max(c1), min(c2) from schema_2.table_2;",
                 comment: expected.comment,
                 // ignore query parse result
                 query: create_task.query.clone(),
+                ddl_options: OptionMap::default(),
             };
 
             assert_eq!(create_task, expected, "input sql is:\n{sql}");
@@ -1786,6 +1832,7 @@ SELECT max(c1), min(c2) FROM schema_2.table_2;",
                 comment: expected.comment,
                 // ignore query parse result
                 query: create_task.query.clone(),
+                ddl_options: OptionMap::default(),
             };
 
             assert_eq!(create_task, expected, "input sql is:\n{sql}");
@@ -1793,6 +1840,20 @@ SELECT max(c1), min(c2) FROM schema_2.table_2;",
             let recreated = parse_create_flow(&show_create);
             assert_eq!(recreated, expected, "input sql is:\n{show_create}");
         }
+    }
+
+    #[test]
+    fn test_parse_create_flow_with_ddl_options() {
+        let sql =
+            "CREATE FLOW task_1 WITH (wait=false, timeout='5s') SINK TO out_table AS SELECT 1";
+        let stmts =
+            ParserContext::create_with_dialect(sql, &GreptimeDbDialect {}, ParseOptions::default())
+                .unwrap();
+        let Statement::CreateFlow(c) = &stmts[0] else {
+            unreachable!()
+        };
+        assert_eq!(c.ddl_options.get("wait").unwrap(), "false");
+        assert_eq!(c.ddl_options.get("timeout").unwrap(), "5s");
     }
 
     #[test]
@@ -2359,6 +2420,28 @@ ENGINE=mito";
     }
 
     #[test]
+    fn test_parse_create_table_split_ddl_options() {
+        let sql = r"CREATE TABLE demo(ts timestamp TIME INDEX) ENGINE=mito WITH(ttl='10s', timeout='5m', wait=false)";
+        let result =
+            ParserContext::create_with_dialect(sql, &GreptimeDbDialect {}, ParseOptions::default())
+                .unwrap();
+        assert_eq!(1, result.len());
+        let Statement::CreateTable(c) = &result[0] else {
+            unreachable!()
+        };
+        assert_eq!(
+            [("ttl", "10s")].into_iter().collect::<HashMap<_, _>>(),
+            c.options.to_str_map()
+        );
+        assert_eq!(
+            [("timeout", "5m"), ("wait", "false")]
+                .into_iter()
+                .collect::<HashMap<_, _>>(),
+            c.ddl_options.to_str_map()
+        );
+    }
+
+    #[test]
     fn test_invalid_index_keys() {
         let sql = r"create table demo(
                              host string,
@@ -2456,6 +2539,18 @@ non TIMESTAMP(6) TIME INDEX,
                 assert!(!c.or_replace);
                 assert!(!c.if_not_exists);
                 assert_eq!("test", c.name.to_string());
+            }
+            _ => unreachable!(),
+        }
+
+        let sql = "CREATE VIEW test WITH (wait=false, timeout='1s') AS SELECT * FROM NUMBERS";
+        let result =
+            ParserContext::create_with_dialect(sql, &GreptimeDbDialect {}, ParseOptions::default())
+                .unwrap();
+        match &result[0] {
+            Statement::CreateView(c) => {
+                assert_eq!(c.ddl_options.get("wait").unwrap(), "false");
+                assert_eq!(c.ddl_options.get("timeout").unwrap(), "1s");
             }
             _ => unreachable!(),
         }

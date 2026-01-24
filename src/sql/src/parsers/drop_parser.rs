@@ -18,6 +18,7 @@ use sqlparser::tokenizer::Token;
 
 use crate::error::{self, InvalidFlowNameSnafu, InvalidTableNameSnafu, Result};
 use crate::parser::{FLOW, ParserContext};
+use crate::parsers::utils::parse_ddl_with_options;
 #[cfg(feature = "enterprise")]
 use crate::statements::drop::trigger::DropTrigger;
 use crate::statements::drop::{DropDatabase, DropFlow, DropTable, DropView};
@@ -65,10 +66,12 @@ impl ParserContext<'_> {
                 name: trigger_ident.to_string()
             }
         );
+        let ddl_options = parse_ddl_with_options(&mut self.parser)?;
 
         Ok(Statement::DropTrigger(DropTrigger::new(
             trigger_ident,
             if_exists,
+            ddl_options,
         )))
     }
 
@@ -89,10 +92,12 @@ impl ParserContext<'_> {
                 name: view_ident.to_string()
             }
         );
+        let ddl_options = parse_ddl_with_options(&mut self.parser)?;
 
         Ok(Statement::DropView(DropView {
             view_name: view_ident,
             drop_if_exists: if_exists,
+            ddl_options,
         }))
     }
 
@@ -113,8 +118,13 @@ impl ParserContext<'_> {
                 name: flow_ident.to_string()
             }
         );
+        let ddl_options = parse_ddl_with_options(&mut self.parser)?;
 
-        Ok(Statement::DropFlow(DropFlow::new(flow_ident, if_exists)))
+        Ok(Statement::DropFlow(DropFlow::new(
+            flow_ident,
+            if_exists,
+            ddl_options,
+        )))
     }
 
     fn parse_drop_table(&mut self) -> Result<Statement> {
@@ -142,7 +152,12 @@ impl ParserContext<'_> {
             }
         }
 
-        Ok(Statement::DropTable(DropTable::new(table_names, if_exists)))
+        let ddl_options = parse_ddl_with_options(&mut self.parser)?;
+        Ok(Statement::DropTable(DropTable::new(
+            table_names,
+            if_exists,
+            ddl_options,
+        )))
     }
 
     fn parse_drop_database(&mut self) -> Result<Statement> {
@@ -157,9 +172,11 @@ impl ParserContext<'_> {
             })?;
         let database_name = Self::canonicalize_object_name(database_name)?;
 
+        let ddl_options = parse_ddl_with_options(&mut self.parser)?;
         Ok(Statement::DropDatabase(DropDatabase::new(
             database_name,
             if_exists,
+            ddl_options,
         )))
     }
 }
@@ -171,6 +188,7 @@ mod tests {
     use super::*;
     use crate::dialect::GreptimeDbDialect;
     use crate::parser::ParseOptions;
+    use crate::statements::OptionMap;
 
     #[test]
     pub fn test_drop_table() {
@@ -182,7 +200,8 @@ mod tests {
             stmts.pop().unwrap(),
             Statement::DropTable(DropTable::new(
                 vec![ObjectName::from(vec![Ident::new("foo")])],
-                false
+                false,
+                OptionMap::default()
             ))
         );
 
@@ -194,7 +213,8 @@ mod tests {
             stmts.pop().unwrap(),
             Statement::DropTable(DropTable::new(
                 vec![ObjectName::from(vec![Ident::new("foo")])],
-                true
+                true,
+                OptionMap::default()
             ))
         );
 
@@ -209,7 +229,8 @@ mod tests {
                     Ident::new("my_schema"),
                     Ident::new("foo")
                 ])],
-                false
+                false,
+                OptionMap::default()
             ))
         );
 
@@ -225,9 +246,30 @@ mod tests {
                     Ident::new("my_schema"),
                     Ident::new("foo")
                 ])],
-                false
+                false,
+                OptionMap::default()
             ))
         )
+    }
+
+    #[test]
+    pub fn test_drop_table_with_ddl_options() {
+        let sql = "DROP TABLE foo WITH (timeout='1s', wait=false)";
+        let mut stmts =
+            ParserContext::create_with_dialect(sql, &GreptimeDbDialect {}, ParseOptions::default())
+                .unwrap();
+        let Statement::DropTable(drop) = stmts.pop().unwrap() else {
+            unreachable!()
+        };
+        assert_eq!(drop.ddl_options.get("timeout").unwrap(), "1s");
+        assert_eq!(drop.ddl_options.get("wait").unwrap(), "false");
+
+        ParserContext::create_with_dialect(
+            "DROP TABLE foo WITH (unknown='x')",
+            &GreptimeDbDialect {},
+            ParseOptions::default(),
+        )
+        .unwrap_err();
     }
 
     #[test]
@@ -240,7 +282,8 @@ mod tests {
             stmts.pop().unwrap(),
             Statement::DropDatabase(DropDatabase::new(
                 ObjectName::from(vec![Ident::new("public")]),
-                false
+                false,
+                OptionMap::default()
             ))
         );
 
@@ -252,7 +295,8 @@ mod tests {
             stmts.pop().unwrap(),
             Statement::DropDatabase(DropDatabase::new(
                 ObjectName::from(vec![Ident::new("public")]),
-                true
+                true,
+                OptionMap::default()
             ))
         );
 
@@ -264,7 +308,8 @@ mod tests {
             stmts.pop().unwrap(),
             Statement::DropDatabase(DropDatabase::new(
                 ObjectName::from(vec![Ident::with_quote('`', "fOo"),]),
-                false
+                false,
+                OptionMap::default()
             ))
         );
     }
@@ -279,7 +324,8 @@ mod tests {
             stmts.pop().unwrap(),
             Statement::DropFlow(DropFlow::new(
                 ObjectName::from(vec![Ident::new("foo")]),
-                false
+                false,
+                OptionMap::default()
             ))
         );
 
@@ -291,7 +337,8 @@ mod tests {
             stmts.pop().unwrap(),
             Statement::DropFlow(DropFlow::new(
                 ObjectName::from(vec![Ident::new("foo")]),
-                true
+                true,
+                OptionMap::default()
             ))
         );
 
@@ -303,7 +350,8 @@ mod tests {
             stmts.pop().unwrap(),
             Statement::DropFlow(DropFlow::new(
                 ObjectName::from(vec![Ident::new("my_schema"), Ident::new("foo")]),
-                false
+                false,
+                OptionMap::default()
             ))
         );
 
@@ -319,7 +367,8 @@ mod tests {
                     Ident::new("my_schema"),
                     Ident::new("foo")
                 ]),
-                false
+                false,
+                OptionMap::default()
             ))
         )
     }
@@ -336,6 +385,7 @@ mod tests {
             Statement::DropView(DropView {
                 view_name: ObjectName::from(vec![Ident::new("foo")]),
                 drop_if_exists: false,
+                ddl_options: OptionMap::default(),
             })
         );
         assert_eq!(sql, stmt.to_string());
@@ -354,6 +404,7 @@ mod tests {
                     Ident::new("foo")
                 ]),
                 drop_if_exists: false,
+                ddl_options: OptionMap::default(),
             })
         );
         assert_eq!(sql, stmt.to_string());
@@ -368,6 +419,7 @@ mod tests {
             Statement::DropView(DropView {
                 view_name: ObjectName::from(vec![Ident::new("foo")]),
                 drop_if_exists: true,
+                ddl_options: OptionMap::default(),
             })
         );
         assert_eq!(sql, stmt.to_string());

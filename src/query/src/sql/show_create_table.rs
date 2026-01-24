@@ -300,6 +300,7 @@ pub fn create_table_stmt(
         engine: table_meta.engine.clone(),
         constraints,
         options,
+        ddl_options: OptionMap::default(),
         partitions: None,
     })
 }

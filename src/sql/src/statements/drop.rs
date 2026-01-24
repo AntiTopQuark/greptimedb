@@ -17,9 +17,12 @@ pub mod trigger;
 
 use std::fmt::Display;
 
+use itertools::Itertools;
 use serde::Serialize;
 use sqlparser::ast::ObjectName;
 use sqlparser_derive::{Visit, VisitMut};
+
+use crate::statements::OptionMap;
 
 /// DROP TABLE statement.
 #[derive(Debug, Clone, PartialEq, Eq, Visit, VisitMut, Serialize)]
@@ -28,14 +31,16 @@ pub struct DropTable {
 
     /// drop table if exists
     drop_if_exists: bool,
+    pub ddl_options: OptionMap,
 }
 
 impl DropTable {
     /// Creates a statement for `DROP TABLE`
-    pub fn new(table_names: Vec<ObjectName>, if_exists: bool) -> Self {
+    pub fn new(table_names: Vec<ObjectName>, if_exists: bool, ddl_options: OptionMap) -> Self {
         Self {
             table_names,
             drop_if_exists: if_exists,
+            ddl_options,
         }
     }
 
@@ -61,6 +66,9 @@ impl Display for DropTable {
             }
             write!(f, " {}", table_name)?;
         }
+        if !self.ddl_options.is_empty() {
+            write!(f, " WITH({})", self.ddl_options.kv_pairs().iter().join(", "))?;
+        }
         Ok(())
     }
 }
@@ -71,14 +79,16 @@ pub struct DropDatabase {
     name: ObjectName,
     /// drop table if exists
     drop_if_exists: bool,
+    pub ddl_options: OptionMap,
 }
 
 impl DropDatabase {
     /// Creates a statement for `DROP DATABASE`
-    pub fn new(name: ObjectName, if_exists: bool) -> Self {
+    pub fn new(name: ObjectName, if_exists: bool, ddl_options: OptionMap) -> Self {
         Self {
             name,
             drop_if_exists: if_exists,
+            ddl_options,
         }
     }
 
@@ -98,7 +108,11 @@ impl Display for DropDatabase {
             f.write_str(" IF EXISTS")?;
         }
         let name = self.name();
-        write!(f, r#" {name}"#)
+        write!(f, r#" {name}"#)?;
+        if !self.ddl_options.is_empty() {
+            write!(f, " WITH({})", self.ddl_options.kv_pairs().iter().join(", "))?;
+        }
+        Ok(())
     }
 }
 
@@ -108,14 +122,16 @@ pub struct DropFlow {
     flow_name: ObjectName,
     /// drop flow if exists
     drop_if_exists: bool,
+    pub ddl_options: OptionMap,
 }
 
 impl DropFlow {
     /// Creates a statement for `DROP DATABASE`
-    pub fn new(flow_name: ObjectName, if_exists: bool) -> Self {
+    pub fn new(flow_name: ObjectName, if_exists: bool, ddl_options: OptionMap) -> Self {
         Self {
             flow_name,
             drop_if_exists: if_exists,
+            ddl_options,
         }
     }
 
@@ -137,7 +153,11 @@ impl Display for DropFlow {
             f.write_str(" IF EXISTS")?;
         }
         let flow_name = self.flow_name();
-        write!(f, r#" {flow_name}"#)
+        write!(f, r#" {flow_name}"#)?;
+        if !self.ddl_options.is_empty() {
+            write!(f, " WITH({})", self.ddl_options.kv_pairs().iter().join(", "))?;
+        }
+        Ok(())
     }
 }
 
@@ -148,6 +168,7 @@ pub struct DropView {
     pub view_name: ObjectName,
     // drop view if exists
     pub drop_if_exists: bool,
+    pub ddl_options: OptionMap,
 }
 
 impl Display for DropView {
@@ -161,7 +182,11 @@ impl Display for DropView {
                 ""
             },
             self.view_name
-        )
+        )?;
+        if !self.ddl_options.is_empty() {
+            write!(f, " WITH({})", self.ddl_options.kv_pairs().iter().join(", "))?;
+        }
+        Ok(())
     }
 }
 

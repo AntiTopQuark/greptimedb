@@ -10,7 +10,7 @@ use crate::error;
 use crate::error::Result;
 use crate::parser::ParserContext;
 use crate::parsers::tql_parser;
-use crate::parsers::utils::convert_month_day_nano_to_duration;
+use crate::parsers::utils::{convert_month_day_nano_to_duration, parse_ddl_with_options};
 use crate::statements::OptionMap;
 use crate::statements::create::SqlOrTql;
 use crate::statements::create::trigger::{
@@ -98,6 +98,7 @@ impl<'a> ParserContext<'a> {
                     self.parser.next_token();
                     keep_firing_for.replace(self.parse_trigger_keep_firing_for(true)?);
                 }
+                Token::Word(w) if w.keyword == Keyword::WITH => break,
                 Token::EOF => break,
                 _ => {
                     return self.expected(
@@ -117,6 +118,7 @@ impl<'a> ParserContext<'a> {
             error::MissingClauseSnafu { name: NOTIFY }
         );
 
+        let ddl_options = parse_ddl_with_options(&mut self.parser)?;
         let create_trigger = CreateTrigger {
             trigger_name,
             if_not_exists,
@@ -126,6 +128,7 @@ impl<'a> ParserContext<'a> {
             labels,
             annotations,
             channels: notify_channels,
+            ddl_options,
         };
         let create_trigger = Statement::CreateTrigger(create_trigger);
         Ok(create_trigger)

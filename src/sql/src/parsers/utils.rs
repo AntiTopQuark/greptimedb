@@ -42,11 +42,11 @@ use snafu::{ResultExt, ensure};
 use sqlparser::dialect::Dialect;
 use sqlparser::keywords::Keyword;
 use sqlparser::parser::Parser;
-use table::requests::validate_table_option;
+use table::requests::{VALID_DDL_OPTION_KEYS, validate_table_option};
 
 use crate::error::{
-    ConvertToLogicalExpressionSnafu, InvalidSqlSnafu, InvalidTableOptionSnafu, ParseSqlValueSnafu,
-    Result, SimplificationSnafu, SyntaxSnafu,
+    ConvertToLogicalExpressionSnafu, InvalidDdlOptionSnafu, InvalidSqlSnafu,
+    InvalidTableOptionSnafu, ParseSqlValueSnafu, Result, SimplificationSnafu, SyntaxSnafu,
 };
 use crate::parser::{ParseOptions, ParserContext};
 use crate::statements::OptionMap;
@@ -287,6 +287,22 @@ pub fn parse_with_options(parser: &mut Parser) -> Result<OptionMap> {
         .collect::<Result<HashMap<String, OptionValue>>>()?;
     for key in options.keys() {
         ensure!(validate_table_option(key), InvalidTableOptionSnafu { key });
+    }
+    Ok(OptionMap::new(options))
+}
+
+pub fn parse_ddl_with_options(parser: &mut Parser) -> Result<OptionMap> {
+    let options = parser
+        .parse_options(Keyword::WITH)
+        .context(SyntaxSnafu)?
+        .into_iter()
+        .map(parse_option_string)
+        .collect::<Result<HashMap<String, OptionValue>>>()?;
+    for key in options.keys() {
+        ensure!(
+            VALID_DDL_OPTION_KEYS.contains(&key.as_str()),
+            InvalidDdlOptionSnafu { key }
+        );
     }
     Ok(OptionMap::new(options))
 }

@@ -114,6 +114,7 @@ pub struct CreateTable {
     pub constraints: Vec<TableConstraint>,
     /// Table options in `WITH`. All keys are lowercase.
     pub options: OptionMap,
+    pub ddl_options: OptionMap,
     pub partitions: Option<Partitions>,
 }
 
@@ -503,8 +504,9 @@ impl Display for CreateTable {
             writeln!(f, "{partitions}")?;
         }
         writeln!(f, "ENGINE={}", &self.engine)?;
-        if !self.options.is_empty() {
-            let options = self.options.kv_pairs();
+        if !self.options.is_empty() || !self.ddl_options.is_empty() {
+            let mut options = self.options.kv_pairs();
+            options.extend(self.ddl_options.kv_pairs());
             write!(f, "WITH(\n{}\n)", format_list_indent!(options))?;
         }
         Ok(())
@@ -517,15 +519,17 @@ pub struct CreateDatabase {
     /// Create if not exists
     pub if_not_exists: bool,
     pub options: OptionMap,
+    pub ddl_options: OptionMap,
 }
 
 impl CreateDatabase {
     /// Creates a statement for `CREATE DATABASE`
-    pub fn new(name: ObjectName, if_not_exists: bool, options: OptionMap) -> Self {
+    pub fn new(name: ObjectName, if_not_exists: bool, options: OptionMap, ddl_options: OptionMap) -> Self {
         Self {
             name,
             if_not_exists,
             options,
+            ddl_options,
         }
     }
 }
@@ -537,8 +541,9 @@ impl Display for CreateDatabase {
             write!(f, "IF NOT EXISTS ")?;
         }
         write!(f, "{}", &self.name)?;
-        if !self.options.is_empty() {
-            let options = self.options.kv_pairs();
+        if !self.options.is_empty() || !self.ddl_options.is_empty() {
+            let mut options = self.options.kv_pairs();
+            options.extend(self.ddl_options.kv_pairs());
             write!(f, "\nWITH(\n{}\n)", format_list_indent!(options))?;
         }
         Ok(())
@@ -553,6 +558,7 @@ pub struct CreateExternalTable {
     pub constraints: Vec<TableConstraint>,
     /// Table options in `WITH`. All keys are lowercase.
     pub options: OptionMap,
+    pub ddl_options: OptionMap,
     pub if_not_exists: bool,
     pub engine: String,
 }
@@ -568,8 +574,9 @@ impl Display for CreateExternalTable {
         writeln!(f, "{}", format_table_constraint(&self.constraints))?;
         writeln!(f, ")")?;
         writeln!(f, "ENGINE={}", &self.engine)?;
-        if !self.options.is_empty() {
-            let options = self.options.kv_pairs();
+        if !self.options.is_empty() || !self.ddl_options.is_empty() {
+            let mut options = self.options.kv_pairs();
+            options.extend(self.ddl_options.kv_pairs());
             write!(f, "WITH(\n{}\n)", format_list_indent!(options))?;
         }
         Ok(())
@@ -613,6 +620,7 @@ pub struct CreateFlow {
     pub comment: Option<String>,
     /// SQL statement
     pub query: Box<SqlOrTql>,
+    pub ddl_options: OptionMap,
 }
 
 /// Either a sql query or a tql query
@@ -660,6 +668,10 @@ impl Display for CreateFlow {
             write!(f, "IF NOT EXISTS ")?;
         }
         writeln!(f, "{}", &self.flow_name)?;
+        if !self.ddl_options.is_empty() {
+            let options = self.ddl_options.kv_pairs();
+            writeln!(f, "WITH(\n{}\n)", format_list_indent!(options))?;
+        }
         writeln!(f, "SINK TO {}", &self.sink_table_name)?;
         if let Some(expire_after) = &self.expire_after {
             writeln!(f, "EXPIRE AFTER '{} s'", expire_after)?;
@@ -688,6 +700,7 @@ pub struct CreateView {
     pub or_replace: bool,
     /// Create VIEW only when it doesn't exists
     pub if_not_exists: bool,
+    pub ddl_options: OptionMap,
 }
 
 impl Display for CreateView {
@@ -703,6 +716,10 @@ impl Display for CreateView {
         write!(f, "{} ", &self.name)?;
         if !self.columns.is_empty() {
             write!(f, "({}) ", format_list_comma!(self.columns))?;
+        }
+        if !self.ddl_options.is_empty() {
+            let options = self.ddl_options.kv_pairs();
+            write!(f, "WITH(\n{}\n) ", format_list_indent!(options))?;
         }
         write!(f, "AS {}", &self.query)
     }

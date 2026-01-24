@@ -809,6 +809,7 @@ pub fn show_create_database(database_name: &str, options: OptionMap) -> Result<O
         name: ObjectName::from(vec![Ident::new(database_name)]),
         if_not_exists: true,
         options,
+        ddl_options: OptionMap::default(),
     };
     let sql = format!("{stmt}");
     let columns = vec![
@@ -914,6 +915,7 @@ pub fn show_create_view(
         query: create_view.query,
         or_replace: create_view.or_replace,
         if_not_exists: create_view.if_not_exists,
+        ddl_options: create_view.ddl_options,
     };
 
     let sql = format!("{}", stmt);
@@ -1054,6 +1056,7 @@ pub fn show_create_flow(
         eval_interval: flow_val.eval_interval(),
         comment,
         query,
+        ddl_options: OptionMap::default(),
     };
 
     let sql = format!("{}", stmt);

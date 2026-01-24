@@ -20,6 +20,7 @@ use sqlparser::tokenizer::Token;
 use crate::ast::{Ident, ObjectNamePart};
 use crate::error::{self, InvalidSqlSnafu, Result};
 use crate::parser::{FLOW, ParserContext};
+use crate::parsers::utils::parse_ddl_with_options;
 use crate::statements::comment::{Comment, CommentObject};
 use crate::statements::statement::Statement;
 
@@ -74,10 +75,12 @@ impl ParserContext<'_> {
                     .context(error::SyntaxSnafu)?,
             )
         };
+        let ddl_options = parse_ddl_with_options(&mut self.parser)?;
 
         Ok(Statement::Comment(Comment {
             object: comment,
             comment: comment_value,
+            ddl_options,
         }))
     }
 
@@ -152,6 +155,15 @@ mod tests {
             Statement::Comment(comment) => {
                 assert_matches!(comment.object, CommentObject::Table(ref name) if name.to_string() == "mytable");
                 assert_eq!(comment.comment.as_deref(), Some("test"));
+            }
+            _ => panic!("expected comment statement"),
+        }
+
+        let stmt = parse("COMMENT ON TABLE mytable IS 'test' WITH (wait=false, timeout='1s');");
+        match stmt {
+            Statement::Comment(comment) => {
+                assert_eq!(comment.ddl_options.get("wait").unwrap(), "false");
+                assert_eq!(comment.ddl_options.get("timeout").unwrap(), "1s");
             }
             _ => panic!("expected comment statement"),
         }

@@ -106,12 +106,12 @@ use crate::statement::StatementExecutor;
 use crate::statement::show::create_partitions_stmt;
 
 #[derive(Debug, Clone, Copy)]
-struct DdlSubmitOptions {
+pub(crate) struct DdlSubmitOptions {
     wait: bool,
     timeout: Duration,
 }
 
-fn build_procedure_id_output(procedure_id: Vec<u8>) -> Result<Output> {
+pub(crate) fn build_procedure_id_output(procedure_id: Vec<u8>) -> Result<Output> {
     let procedure_id = String::from_utf8_lossy(&procedure_id).to_string();
     let vector: VectorRef = Arc::new(StringVector::from(vec![procedure_id]));
     let schema = Arc::new(Schema::new(vec![ColumnSchema::new(
@@ -126,7 +126,7 @@ fn build_procedure_id_output(procedure_id: Vec<u8>) -> Result<Output> {
     Ok(Output::new_with_record_batches(batches))
 }
 
-fn parse_ddl_options(options: &OptionMap) -> Result<DdlSubmitOptions> {
+pub(crate) fn parse_ddl_options(options: &OptionMap) -> Result<DdlSubmitOptions> {
     let wait = match options.get(DDL_WAIT) {
         Some(value) => value.parse::<bool>().map_err(|_| {
             InvalidSqlSnafu {

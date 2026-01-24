@@ -18,6 +18,7 @@ use sqlparser::tokenizer::Token;
 
 use crate::error::{self, InvalidSqlSnafu, InvalidTableNameSnafu, Result, UnexpectedTokenSnafu};
 use crate::parser::ParserContext;
+use crate::parsers::utils::parse_ddl_with_options;
 use crate::statements::statement::Statement;
 use crate::statements::truncate::TruncateTable;
 
@@ -46,7 +47,10 @@ impl ParserContext<'_> {
 
         // if no range is specified, we just truncate the table
         if !have_range {
-            return Ok(Statement::TruncateTable(TruncateTable::new(table_ident)));
+            let ddl_options = parse_ddl_with_options(&mut self.parser)?;
+            return Ok(Statement::TruncateTable(
+                TruncateTable::new(table_ident).with_ddl_options(ddl_options),
+            ));
         }
 
         // parse a list of time ranges consist of (Timestamp, Timestamp),?
@@ -115,9 +119,13 @@ impl ParserContext<'_> {
                     if matches!(next_peek, Token::EOF | Token::SemiColon) {
                         break; // Trailing comma, end of statement
                     }
+                    if matches!(next_peek, Token::Word(w) if w.keyword == Keyword::WITH) {
+                        break;
+                    }
                     // Otherwise, continue to parse next range
                     continue;
                 }
+                Token::Word(w) if w.keyword == Keyword::WITH => break,
                 _ => UnexpectedTokenSnafu {
                     expected: "a comma or end of statement",
                     actual: self.peek_token_as_string(),
@@ -126,10 +134,10 @@ impl ParserContext<'_> {
             }
         }
 
-        Ok(Statement::TruncateTable(TruncateTable::new_with_ranges(
-            table_ident,
-            time_ranges,
-        )))
+        let ddl_options = parse_ddl_with_options(&mut self.parser)?;
+        Ok(Statement::TruncateTable(
+            TruncateTable::new_with_ranges(table_ident, time_ranges).with_ddl_options(ddl_options),
+        ))
     }
 }
 
@@ -373,6 +381,16 @@ mod tests {
                 Ident::with_quote('"', "drop"),
             ])))
         );
+
+        let sql = "TRUNCATE TABLE foo WITH (wait=false, timeout='1s')";
+        let mut stmts =
+            ParserContext::create_with_dialect(sql, &GreptimeDbDialect {}, ParseOptions::default())
+                .unwrap();
+        let Statement::TruncateTable(trunc) = stmts.pop().unwrap() else {
+            unreachable!()
+        };
+        assert_eq!(trunc.ddl_options.get("wait").unwrap(), "false");
+        assert_eq!(trunc.ddl_options.get("timeout").unwrap(), "1s");
     }
 
     #[test]

@@ -21,6 +21,7 @@ pub struct CreateTrigger {
     pub labels: OptionMap,
     pub annotations: OptionMap,
     pub channels: Vec<NotifyChannel>,
+    pub ddl_options: OptionMap,
 }
 
 impl Display for CreateTrigger {
@@ -56,6 +57,11 @@ impl Display for CreateTrigger {
                 writeln!(f, "  {},", format_indent!(channel))?;
             }
             write!(f, "  )")?;
+        }
+
+        if !self.ddl_options.is_empty() {
+            let options = self.ddl_options.kv_pairs();
+            write!(f, "\nWITH ({})", format_list_comma!(options))?;
         }
 
         Ok(())

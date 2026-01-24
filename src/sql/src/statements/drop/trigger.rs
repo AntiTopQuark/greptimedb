@@ -1,21 +1,26 @@
 use std::fmt::Display;
 
+use itertools::Itertools;
 use serde::Serialize;
 use sqlparser::ast::ObjectName;
 use sqlparser_derive::{Visit, VisitMut};
+
+use crate::statements::OptionMap;
 
 /// `DROP TRIGGER` statement.
 #[derive(Debug, Clone, PartialEq, Eq, Visit, VisitMut, Serialize)]
 pub struct DropTrigger {
     trigger_name: ObjectName,
     drop_if_exists: bool,
+    pub ddl_options: OptionMap,
 }
 
 impl DropTrigger {
-    pub fn new(trigger_name: ObjectName, if_exists: bool) -> Self {
+    pub fn new(trigger_name: ObjectName, if_exists: bool, ddl_options: OptionMap) -> Self {
         Self {
             trigger_name,
             drop_if_exists: if_exists,
+            ddl_options,
         }
     }
 
@@ -35,7 +40,11 @@ impl Display for DropTrigger {
             f.write_str(" IF EXISTS")?;
         }
         let trigger_name = self.trigger_name();
-        write!(f, r#" {trigger_name}"#)
+        write!(f, r#" {trigger_name}"#)?;
+        if !self.ddl_options.is_empty() {
+            write!(f, " WITH({})", self.ddl_options.kv_pairs().iter().join(", "))?;
+        }
+        Ok(())
     }
 }
 
@@ -55,13 +64,13 @@ mod tests {
         };
         let trigger_name = ObjectName::from(vec![ident]);
 
-        let drop_trigger = DropTrigger::new(trigger_name.clone(), true);
+        let drop_trigger = DropTrigger::new(trigger_name.clone(), true, OptionMap::default());
         assert_eq!(
             drop_trigger.to_string(),
             "DROP TRIGGER IF EXISTS my_trigger"
         );
 
-        let drop_trigger_no_if_exists = DropTrigger::new(trigger_name, false);
+        let drop_trigger_no_if_exists = DropTrigger::new(trigger_name, false, OptionMap::default());
         assert_eq!(
             drop_trigger_no_if_exists.to_string(),
             "DROP TRIGGER my_trigger"

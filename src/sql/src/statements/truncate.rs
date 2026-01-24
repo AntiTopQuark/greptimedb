@@ -18,11 +18,14 @@ use itertools::Itertools;
 use serde::Serialize;
 use sqlparser::ast::{ObjectName, Visit, VisitMut, Visitor, VisitorMut};
 
+use crate::statements::OptionMap;
+
 /// TRUNCATE TABLE statement.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TruncateTable {
     table_name: ObjectName,
     time_ranges: Vec<(sqlparser::ast::Value, sqlparser::ast::Value)>,
+    pub ddl_options: OptionMap,
 }
 
 impl Visit for TruncateTable {
@@ -32,6 +35,7 @@ impl Visit for TruncateTable {
             start.visit(visitor)?;
             end.visit(visitor)?;
         }
+        self.ddl_options.visit(visitor)?;
         ::std::ops::ControlFlow::Continue(())
     }
 }
@@ -43,6 +47,7 @@ impl VisitMut for TruncateTable {
             start.visit(visitor)?;
             end.visit(visitor)?;
         }
+        sqlparser::ast::VisitMut::visit(&mut self.ddl_options, visitor)?;
         ::std::ops::ControlFlow::Continue(())
     }
 }
@@ -53,6 +58,7 @@ impl TruncateTable {
         Self {
             table_name,
             time_ranges: Vec::new(),
+            ddl_options: OptionMap::default(),
         }
     }
 
@@ -64,7 +70,13 @@ impl TruncateTable {
         Self {
             table_name,
             time_ranges,
+            ddl_options: OptionMap::default(),
         }
+    }
+
+    pub fn with_ddl_options(mut self, ddl_options: OptionMap) -> Self {
+        self.ddl_options = ddl_options;
+        self
     }
 
     pub fn table_name(&self) -> &ObjectName {
@@ -81,6 +93,9 @@ impl Display for TruncateTable {
         let table_name = self.table_name();
         write!(f, r#"TRUNCATE TABLE {table_name}"#)?;
         if self.time_ranges.is_empty() {
+            if !self.ddl_options.is_empty() {
+                write!(f, " WITH({})", self.ddl_options.kv_pairs().iter().join(", "))?;
+            }
             return Ok(());
         }
 
@@ -92,7 +107,11 @@ impl Display for TruncateTable {
                 .iter()
                 .map(|(start, end)| format!("({}, {})", start, end))
                 .join(", ")
-        )
+        )?;
+        if !self.ddl_options.is_empty() {
+            write!(f, " WITH({})", self.ddl_options.kv_pairs().iter().join(", "))?;
+        }
+        Ok(())
     }
 }
 
